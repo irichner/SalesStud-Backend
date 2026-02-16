@@ -1,0 +1,46 @@
+# =============================================
+# SalesStud.io Backend .gitignore
+# =============================================
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Alembic migrations (we'll commit the versions folder, but not temp files)
+alembic/versions/__pycache__/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Built packages
+*.egg-info/
+dist/
+build/
+
+# Temporary files
+temp/
+tmp/
