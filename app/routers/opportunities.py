@@ -85,7 +85,7 @@ async def get_opportunities(
     if account_id:
         query = query.filter(Opportunity.account_id == account_id)
 
-    opportunities = query.offset(skip).limit(limit).all()
+    opportunities = query.order_by(Opportunity.id).offset(skip).limit(limit).all()
 
     # Add related names
     result = []

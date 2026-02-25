@@ -74,7 +74,7 @@ async def get_contacts(
     if account_id:
         query = query.filter(Contact.account_id == account_id)
 
-    contacts = query.offset(skip).limit(limit).all()
+    contacts = query.order_by(Contact.id).offset(skip).limit(limit).all()
 
     # Add account names
     result = []

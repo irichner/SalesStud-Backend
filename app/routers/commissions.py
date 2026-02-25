@@ -74,7 +74,7 @@ async def get_commissions(
     if period:
         query = query.filter(Commission.period == period)
 
-    commissions = query.offset(skip).limit(limit).all()
+    commissions = query.order_by(Commission.id).offset(skip).limit(limit).all()
 
     # Add related names
     result = []

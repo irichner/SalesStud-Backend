@@ -14,7 +14,13 @@ from app.routers import auth, dashboard, accounts, contacts, opportunities, prod
 # from app.routers import ai  # TODO: Add OpenAI API key
 
 # Create database tables
-Base.metadata.create_all(bind=engine)
+print("Creating database tables...")
+try:
+    Base.metadata.create_all(bind=engine)
+    print("Database tables created successfully")
+except Exception as e:
+    print("Error creating database tables:", e)
+    raise
 
 app = FastAPI(title="SalesStud.io API", version="1.0.0")
 

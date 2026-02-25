@@ -8,7 +8,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case, extract
+from sqlalchemy import func, case, extract, String
 from app.db.database import get_db
 from app.models.models import Opportunity, SalesTransaction, User
 from fastapi_users import FastAPIUsers
@@ -110,21 +110,24 @@ async def get_revenue_trend(db: Session = Depends(get_db)):
         start_date = end_date - timedelta(days=365)
 
         revenue_data = db.query(
-            func.date_trunc('month', SalesTransaction.transaction_date).label('month'),
+            func.left(func.convert(String, SalesTransaction.transaction_date, 23), 7).label('month'),
             func.sum(SalesTransaction.amount).label('revenue')
         ).filter(
             SalesTransaction.transaction_date >= start_date.date(),
             SalesTransaction.transaction_date <= end_date.date()
         ).group_by(
-            func.date_trunc('month', SalesTransaction.transaction_date)
+            func.left(func.convert(String, SalesTransaction.transaction_date, 23), 7)
         ).order_by(
-            func.date_trunc('month', SalesTransaction.transaction_date)
+            func.left(func.convert(String, SalesTransaction.transaction_date, 23), 7)
         ).all()
 
         result = []
         for row in revenue_data:
+            # Parse the YYYY-MM string back to datetime for formatting
+            year, month = map(int, row.month.split('-'))
+            month_date = datetime(year, month, 1)
             result.append(RevenueData(
-                month=row.month.strftime('%b %Y'),
+                month=month_date.strftime('%b %Y'),
                 revenue=float(row.revenue)
             ))
 
@@ -156,10 +159,12 @@ async def get_pipeline_chart(db: Session = Depends(get_db)):
 async def get_recent_opportunities(limit: int = 10, db: Session = Depends(get_db)):
     """Get recent opportunities"""
     try:
-        opportunities = db.query(Opportunity).join(
+        opportunities = db.query(Opportunity).outerjoin(
             Opportunity.account
-        ).join(
+        ).outerjoin(
             Opportunity.owner
+        ).filter(
+            Opportunity.updated_date.isnot(None)
         ).order_by(
             Opportunity.updated_date.desc()
         ).limit(limit).all()
@@ -169,11 +174,11 @@ async def get_recent_opportunities(limit: int = 10, db: Session = Depends(get_db
             result.append(OpportunityItem(
                 id=opp.id,
                 name=opp.opportunity_name,
-                account=opp.account.account_name,
+                account=opp.account.account_name if opp.account else "Unknown Account",
                 amount=float(opp.amount),
                 stage=opp.stage,
                 close_date=opp.close_date.isoformat() if opp.close_date else None,
-                owner=opp.owner.full_name
+                owner=opp.owner.full_name if opp.owner else "Unknown Owner"
             ))
 
         return result

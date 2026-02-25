@@ -20,6 +20,7 @@ class User(Base, SQLAlchemyBaseUserTable[int]):
     full_name = Column(String(100), nullable=False)
     email = Column(String(100), unique=True, nullable=False)
     role = Column(String(50), nullable=False)
+    company_name = Column(String(100), nullable=True)
     manager_id = Column(Integer, ForeignKey("Users.id"), nullable=True)
     is_active = Column(Boolean, default=True)
     auth_provider = Column(String(50), default="passkey")
@@ -56,44 +57,44 @@ class RolePermission(Base):
 class Account(Base):
     __tablename__ = "Accounts"
 
-    id = Column(Integer, primary_key=True, index=True)
-    account_name = Column(String(100), nullable=False)
-    industry = Column(String(50))
-    address = Column(String(255))
-    city = Column(String(50))
-    state = Column(String(50))
-    country = Column(String(50))
-    created_date = Column(DateTime(timezone=True), server_default=func.now())
-    updated_date = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    id = Column("AccountID", Integer, primary_key=True, index=True)
+    account_name = Column("AccountName", String(100), nullable=False)
+    industry = Column("Industry", String(50))
+    address = Column("Address", String(255))
+    city = Column("City", String(50))
+    state = Column("State", String(50))
+    country = Column("Country", String(50))
+    created_date = Column("CreatedDate", DateTime(timezone=True), server_default=func.now())
+    updated_date = Column("UpdatedDate", DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 class Contact(Base):
     __tablename__ = "Contacts"
 
-    id = Column(Integer, primary_key=True, index=True)
-    account_id = Column(Integer, ForeignKey("Accounts.id"), nullable=False)
-    first_name = Column(String(50), nullable=False)
-    last_name = Column(String(50), nullable=False)
-    email = Column(String(100), unique=True)
-    phone = Column(String(20))
-    position = Column(String(50))
-    created_date = Column(DateTime(timezone=True), server_default=func.now())
-    updated_date = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    id = Column("ContactID", Integer, primary_key=True, index=True)
+    account_id = Column("AccountID", Integer, ForeignKey("Accounts.AccountID"), nullable=False)
+    first_name = Column("FirstName", String(50), nullable=False)
+    last_name = Column("LastName", String(50), nullable=False)
+    email = Column("Email", String(100), unique=True)
+    phone = Column("Phone", String(20))
+    position = Column("Position", String(50))
+    created_date = Column("CreatedDate", DateTime(timezone=True), server_default=func.now())
+    updated_date = Column("UpdatedDate", DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     account = relationship("Account", backref="contacts")
 
 class Opportunity(Base):
     __tablename__ = "Opportunities"
 
-    id = Column(Integer, primary_key=True, index=True)
-    account_id = Column(Integer, ForeignKey("Accounts.id"), nullable=False)
-    contact_id = Column(Integer, ForeignKey("Contacts.id"), nullable=True)
-    opportunity_name = Column(String(100), nullable=False)
-    stage = Column(String(50), nullable=False)
-    amount = Column(DECIMAL(18, 2), nullable=False)
-    close_date = Column(Date)
-    owner_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
-    created_date = Column(DateTime(timezone=True), server_default=func.now())
-    updated_date = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    id = Column("OpportunityID", Integer, primary_key=True, index=True)
+    account_id = Column("AccountID", Integer, ForeignKey("Accounts.AccountID"), nullable=False)
+    contact_id = Column("ContactID", Integer, ForeignKey("Contacts.ContactID"), nullable=True)
+    opportunity_name = Column("OpportunityName", String(100), nullable=False)
+    stage = Column("Stage", String(50), nullable=False)
+    amount = Column("Amount", DECIMAL(18, 2), nullable=False)
+    close_date = Column("CloseDate", Date)
+    owner_id = Column("OwnerID", Integer, ForeignKey("Users.id"), nullable=False)
+    created_date = Column("CreatedDate", DateTime(timezone=True), server_default=func.now())
+    updated_date = Column("UpdatedDate", DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     account = relationship("Account", backref="opportunities")
     contact = relationship("Contact", backref="opportunities")
@@ -113,7 +114,7 @@ class SalesTransaction(Base):
     __tablename__ = "SalesTransactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    opportunity_id = Column(Integer, ForeignKey("Opportunities.id"), nullable=True)
+    opportunity_id = Column(Integer, ForeignKey("Opportunities.OpportunityID"), nullable=True)
     product_id = Column(Integer, ForeignKey("Products.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
     amount = Column(DECIMAL(18, 2), nullable=False)
@@ -181,9 +182,9 @@ class Interaction(Base):
     __tablename__ = "Interactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    contact_id = Column(Integer, ForeignKey("Contacts.id"), nullable=True)
-    opportunity_id = Column(Integer, ForeignKey("Opportunities.id"), nullable=True)
-    account_id = Column(Integer, ForeignKey("Accounts.id"), nullable=True)
+    contact_id = Column(Integer, ForeignKey("Contacts.ContactID"), nullable=True)
+    opportunity_id = Column(Integer, ForeignKey("Opportunities.OpportunityID"), nullable=True)
+    account_id = Column(Integer, ForeignKey("Accounts.AccountID"), nullable=True)
     user_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
     interaction_type = Column(String(50), nullable=False)
     channel = Column(String(50), nullable=False)
@@ -241,3 +242,14 @@ class SPMProcHistory(Base):
     created_date = Column(DateTime(timezone=True), server_default=func.now())
 
     created_by = relationship("User", backref="spm_proc_history")
+
+class UserPreferences(Base):
+    __tablename__ = "UserPreferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
+    saved_tabs = Column(JSON, nullable=True)
+    created_date = Column(DateTime(timezone=True), server_default=func.now())
+    updated_date = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", backref="preferences")

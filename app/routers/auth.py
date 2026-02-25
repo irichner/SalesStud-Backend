@@ -11,8 +11,9 @@ from fastapi_users import FastAPIUsers
 from fastapi_users.authentication import JWTStrategy, CookieTransport, AuthenticationBackend
 from fastapi_users.db import SQLAlchemyUserDatabase
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.models.models import User
+from app.models.models import User, UserPreferences
 from app.core.config import settings
 
 router = APIRouter()
@@ -86,3 +87,35 @@ router.include_router(
 @router.get("/me", response_model=UserRead)
 async def get_current_user(user: User = Depends(fastapi_users.current_user())):
     return UserRead.from_orm(user)
+
+# User preferences endpoints
+class UserPreferencesUpdate(BaseModel):
+    saved_tabs: list | None = None
+
+@router.get("/preferences")
+async def get_user_preferences(
+    user: User = Depends(fastapi_users.current_user()),
+    db: Session = Depends(get_db)
+):
+    """Get user preferences"""
+    prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+    if not prefs:
+        return {"saved_tabs": None}
+    return {"saved_tabs": prefs.saved_tabs}
+
+@router.post("/preferences")
+async def save_user_preferences(
+    prefs: UserPreferencesUpdate,
+    user: User = Depends(fastapi_users.current_user()),
+    db: Session = Depends(get_db)
+):
+    """Save user preferences"""
+    existing_prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+    if existing_prefs:
+        existing_prefs.saved_tabs = prefs.saved_tabs
+        db.commit()
+    else:
+        new_prefs = UserPreferences(user_id=user.id, saved_tabs=prefs.saved_tabs)
+        db.add(new_prefs)
+        db.commit()
+    return {"message": "Preferences saved successfully"}

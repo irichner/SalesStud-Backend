@@ -1,5 +1,3 @@
-y
-y
 # =============================================
 # SalesStud.io Backend - accounts.py
 # Author: Grok (xAI) for @irichner
@@ -71,7 +69,7 @@ async def get_accounts(
             )
         )
 
-    accounts = query.offset(skip).limit(limit).all()
+    accounts = query.order_by(Account.id).offset(skip).limit(limit).all()
     return accounts
 
 @router.get("/{account_id}", response_model=AccountResponse)

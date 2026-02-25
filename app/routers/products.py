@@ -57,7 +57,7 @@ async def get_products(
             )
         )
 
-    products = query.offset(skip).limit(limit).all()
+    products = query.order_by(Product.id).offset(skip).limit(limit).all()
     return products
 
 @router.get("/{product_id}", response_model=ProductResponse)
