@@ -15,16 +15,20 @@ from fastapi_users.db import SQLAlchemyBaseUserTable
 class User(Base, SQLAlchemyBaseUserTable[int]):
     __tablename__ = "Users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, nullable=False)
-    full_name = Column(String(100), nullable=False)
-    email = Column(String(100), unique=True, nullable=False)
-    role = Column(String(50), nullable=False)
-    company_name = Column(String(100), nullable=True)
-    manager_id = Column(Integer, ForeignKey("Users.id"), nullable=True)
-    is_active = Column(Boolean, default=True)
-    auth_provider = Column(String(50), default="passkey")
-    last_login = Column(DateTime(timezone=True), nullable=True)
+    id = Column("UserID", Integer, primary_key=True, index=True)
+    username = Column("Username", String(50), unique=True, nullable=False)
+    full_name = Column("FullName", String(100), nullable=False)
+    email = Column("Email", String(100), unique=True, nullable=False)
+    role = Column("Role", String(50), nullable=False)
+    company_name = Column("CompanyName", String(100), nullable=True)
+    manager_id = Column("ManagerID", Integer, ForeignKey("Users.UserID"), nullable=True)
+    is_active = Column("IsActive", Boolean, default=True)
+    auth_provider = Column("AuthProvider", String(50), default="passkey")
+    last_login = Column("LastLogin", DateTime(timezone=True), nullable=True)
+    subscription_tier = Column(String(20), default="starter")  # starter, growth, enterprise
+    hashed_password = Column("HashedPassword", String(255), nullable=True)
+    is_superuser = Column(Boolean, default=False)
+    is_verified = Column(Boolean, default=False)
 
     manager = relationship("User", remote_side=[id], backref="subordinates")
 
@@ -45,7 +49,7 @@ class Permission(Base):
 class UserRole(Base):
     __tablename__ = "UserRoles"
 
-    user_id = Column(Integer, ForeignKey("Users.id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("Users.UserID"), primary_key=True)
     role_id = Column(Integer, ForeignKey("Roles.id"), primary_key=True)
 
 class RolePermission(Base):
@@ -92,7 +96,7 @@ class Opportunity(Base):
     stage = Column("Stage", String(50), nullable=False)
     amount = Column("Amount", DECIMAL(18, 2), nullable=False)
     close_date = Column("CloseDate", Date)
-    owner_id = Column("OwnerID", Integer, ForeignKey("Users.id"), nullable=False)
+    owner_id = Column("OwnerID", Integer, ForeignKey("Users.UserID"), nullable=False)
     created_date = Column("CreatedDate", DateTime(timezone=True), server_default=func.now())
     updated_date = Column("UpdatedDate", DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -113,13 +117,13 @@ class Product(Base):
 class SalesTransaction(Base):
     __tablename__ = "SalesTransactions"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column("TransactionID", Integer, primary_key=True, index=True)
     opportunity_id = Column(Integer, ForeignKey("Opportunities.OpportunityID"), nullable=True)
     product_id = Column(Integer, ForeignKey("Products.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
     amount = Column(DECIMAL(18, 2), nullable=False)
     transaction_date = Column(Date, nullable=False)
-    sales_rep_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
+    sales_rep_id = Column(Integer, ForeignKey("Users.UserID"), nullable=False)
     created_date = Column(DateTime(timezone=True), server_default=func.now())
     updated_date = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -137,7 +141,7 @@ class CommissionRule(Base):
     max_amount = Column(DECIMAL(18, 2))
     rate = Column(DECIMAL(5, 4), nullable=False)
     product_id = Column(Integer, ForeignKey("Products.id"), nullable=True)
-    sales_rep_id = Column(Integer, ForeignKey("Users.id"), nullable=True)
+    sales_rep_id = Column(Integer, ForeignKey("Users.UserID"), nullable=True)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date)
     created_date = Column(DateTime(timezone=True), server_default=func.now())
@@ -150,8 +154,8 @@ class Commission(Base):
     __tablename__ = "Commissions"
 
     id = Column(Integer, primary_key=True, index=True)
-    sales_rep_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
-    transaction_id = Column(Integer, ForeignKey("SalesTransactions.id"), nullable=True)
+    sales_rep_id = Column(Integer, ForeignKey("Users.UserID"), nullable=False)
+    transaction_id = Column(Integer, ForeignKey("SalesTransactions.TransactionID"), nullable=True)
     period = Column(String(50), nullable=False)
     calculated_amount = Column(DECIMAL(18, 2), nullable=False)
     rule_id = Column(Integer, ForeignKey("CommissionRules.id"), nullable=False)
@@ -168,7 +172,7 @@ class Quota(Base):
     __tablename__ = "Quotas"
 
     id = Column(Integer, primary_key=True, index=True)
-    sales_rep_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
+    sales_rep_id = Column(Integer, ForeignKey("Users.UserID"), nullable=False)
     period = Column(String(50), nullable=False)
     target_amount = Column(DECIMAL(18, 2), nullable=False)
     achieved_amount = Column(DECIMAL(18, 2), default=0)
@@ -185,7 +189,7 @@ class Interaction(Base):
     contact_id = Column(Integer, ForeignKey("Contacts.ContactID"), nullable=True)
     opportunity_id = Column(Integer, ForeignKey("Opportunities.OpportunityID"), nullable=True)
     account_id = Column(Integer, ForeignKey("Accounts.AccountID"), nullable=True)
-    user_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("Users.UserID"), nullable=False)
     interaction_type = Column(String(50), nullable=False)
     channel = Column(String(50), nullable=False)
     external_id = Column(String(255))
@@ -211,12 +215,14 @@ class Interaction(Base):
 class LLMSpendLog(Base):
     __tablename__ = "LLMSpendLogs"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
-    prompt = Column(Text, nullable=False)
-    tokens = Column(Integer, nullable=False)
-    cost = Column(DECIMAL(10, 4), nullable=False)
-    created_date = Column(DateTime(timezone=True), server_default=func.now())
+    id = Column("LogID", Integer, primary_key=True, index=True)
+    user_id = Column("UserID", Integer, ForeignKey("Users.UserID"), nullable=False)
+    provider = Column("Provider", String(100), nullable=False)
+    model = Column("Model", String(100), nullable=False)
+    prompt = Column("Prompt", Text, nullable=False)
+    tokens = Column("Tokens", Integer, nullable=False)
+    cost = Column("Cost", DECIMAL(10, 4), nullable=False)
+    created_date = Column("CreatedDate", DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", backref="llm_spend_logs")
 
@@ -226,7 +232,7 @@ class CustomView(Base):
     id = Column(Integer, primary_key=True, index=True)
     view_name = Column(String(100), nullable=False)
     sql_code = Column(Text, nullable=False)
-    created_by_user_id = Column(Integer, ForeignKey("Users.id"))
+    created_by_user_id = Column(Integer, ForeignKey("Users.UserID"))
     created_date = Column(DateTime(timezone=True), server_default=func.now())
 
     created_by = relationship("User", backref="custom_views")
@@ -238,18 +244,102 @@ class SPMProcHistory(Base):
     proc_name = Column(String(100), nullable=False)
     sql_code = Column(Text, nullable=False)
     version = Column(Integer, nullable=False)
-    created_by_user_id = Column(Integer, ForeignKey("Users.id"))
+    created_by_user_id = Column(Integer, ForeignKey("Users.UserID"))
     created_date = Column(DateTime(timezone=True), server_default=func.now())
 
     created_by = relationship("User", backref="spm_proc_history")
+
+class SupportedAIProvider(Base):
+    __tablename__ = "SupportedAIProviders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    provider_name = Column(String(100), nullable=False)
+    base_url = Column(String(255), nullable=False)
+    models = Column(JSON, nullable=False)  # List of supported models
+    is_active = Column(Boolean, default=True)
+
+class AIProvider(Base):
+    __tablename__ = "AIProviders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    provider_name = Column(String(100), nullable=False)
+    api_key = Column(String(255), nullable=False)
+    base_url = Column(String(255), nullable=True)
+    models = Column(JSON, nullable=True)  # List of supported models
+    default_model = Column(String(100), nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("Users.UserID"), nullable=False)
+    created_date = Column(DateTime(timezone=True), server_default=func.now())
+    updated_date = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    created_by = relationship("User", backref="ai_providers")
 
 class UserPreferences(Base):
     __tablename__ = "UserPreferences"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("Users.id"), nullable=False)
+    user_id = Column(Integer, nullable=False)
     saved_tabs = Column(JSON, nullable=True)
     created_date = Column(DateTime(timezone=True), server_default=func.now())
     updated_date = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    user = relationship("User", backref="preferences")
+class AIAgent(Base):
+    __tablename__ = "AIAgents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    system_prompt = Column(Text, nullable=False)
+    user_prompt_template = Column(Text, nullable=True)
+    tools = Column(JSON, nullable=True)
+    model = Column(String(100), nullable=False)
+    provider_id = Column(Integer, ForeignKey("AIProviders.id"), nullable=False)
+    graph_config = Column(JSON, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("Users.UserID"), nullable=False)
+    created_date = Column(DateTime(timezone=True), server_default=func.now())
+    updated_date = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    provider = relationship("AIProvider", backref="agents")
+    created_by = relationship("User", backref="ai_agents")
+
+class ChatMessage(Base):
+    __tablename__ = "ChatMessages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tab_id = Column(String(100), nullable=False)
+    account_id = Column(Integer, ForeignKey("Accounts.AccountID"), nullable=True)
+    user_id = Column(Integer, ForeignKey("Users.UserID"), nullable=False)
+    message_type = Column(String(10), nullable=False)
+    content = Column(Text, nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    agent_id = Column(Integer, ForeignKey("AIAgents.id"), nullable=True)
+
+    account = relationship("Account", backref="chat_messages")
+    user = relationship("User", backref="chat_messages")
+    agent = relationship("AIAgent", backref="chat_messages")
+
+class AgentMemory(Base):
+    __tablename__ = "AgentMemory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(Integer, ForeignKey("AIAgents.id"), nullable=False)
+    key = Column(String(255), nullable=False)
+    value = Column(JSON, nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    agent = relationship("AIAgent", backref="memories")
+
+class SchemaProposal(Base):
+    __tablename__ = "SchemaProposals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reason = Column(Text, nullable=False)
+    desired_change = Column(Text, nullable=False)
+    proposal_data = Column(JSON, nullable=False)
+    status = Column(String(20), nullable=False, default="pending")  # pending, approved, rejected, applied
+    risk_score = Column(Integer, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("Users.UserID"), nullable=False)
+    approved_by_user_id = Column(Integer, ForeignKey("Users.UserID"), nullable=True)
+    created_date = Column(DateTime(timezone=True), server_default=func.now())
+    approved_date = Column(DateTime(timezone=True), nullable=True)
+
+    created_by = relationship("User", foreign_keys=[created_by_user_id], backref="created_proposals")
+    approved_by = relationship("User", foreign_keys=[approved_by_user_id], backref="approved_proposals")

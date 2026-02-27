@@ -8,7 +8,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case, extract, String
+from sqlalchemy import func, case, extract, String, text
 from app.db.database import get_db
 from app.models.models import Opportunity, SalesTransaction, User
 from fastapi_users import FastAPIUsers
@@ -105,30 +105,41 @@ async def get_kpis(db: Session = Depends(get_db)):
 async def get_revenue_trend(db: Session = Depends(get_db)):
     """Get revenue trend data for the last 12 months"""
     try:
+        # Check if there are any sales transactions
+        transaction_count = db.query(func.count(SalesTransaction.id)).scalar()
+        if transaction_count == 0:
+            return []
+
         # Get revenue by month from sales transactions
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365)
 
-        revenue_data = db.query(
-            func.left(func.convert(String, SalesTransaction.transaction_date, 23), 7).label('month'),
-            func.sum(SalesTransaction.amount).label('revenue')
+        # Fetch raw data and group in Python to avoid SQL dialect issues
+        transactions = db.query(
+            SalesTransaction.transaction_date,
+            SalesTransaction.amount
         ).filter(
             SalesTransaction.transaction_date >= start_date.date(),
             SalesTransaction.transaction_date <= end_date.date()
-        ).group_by(
-            func.left(func.convert(String, SalesTransaction.transaction_date, 23), 7)
-        ).order_by(
-            func.left(func.convert(String, SalesTransaction.transaction_date, 23), 7)
         ).all()
 
+        # Group by month in Python
+        monthly_revenue = {}
+        for transaction in transactions:
+            # Create YYYY-MM key
+            month_key = f"{transaction.transaction_date.year}-{transaction.transaction_date.month:02d}"
+            if month_key not in monthly_revenue:
+                monthly_revenue[month_key] = 0
+            monthly_revenue[month_key] += float(transaction.amount)
+
+        # Sort by month and format for response
         result = []
-        for row in revenue_data:
-            # Parse the YYYY-MM string back to datetime for formatting
-            year, month = map(int, row.month.split('-'))
+        for month_key in sorted(monthly_revenue.keys()):
+            year, month = map(int, month_key.split('-'))
             month_date = datetime(year, month, 1)
             result.append(RevenueData(
                 month=month_date.strftime('%b %Y'),
-                revenue=float(row.revenue)
+                revenue=monthly_revenue[month_key]
             ))
 
         return result
@@ -159,6 +170,13 @@ async def get_pipeline_chart(db: Session = Depends(get_db)):
 async def get_recent_opportunities(limit: int = 10, db: Session = Depends(get_db)):
     """Get recent opportunities"""
     try:
+        # Check if there are any opportunities with non-null updated_date
+        valid_opp_count = db.query(func.count(Opportunity.id)).filter(
+            Opportunity.updated_date.isnot(None)
+        ).scalar()
+        if valid_opp_count == 0:
+            return []
+
         opportunities = db.query(Opportunity).outerjoin(
             Opportunity.account
         ).outerjoin(

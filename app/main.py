@@ -10,8 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.database import engine, Base
-from app.routers import auth, dashboard, accounts, contacts, opportunities, products, commissions
-# from app.routers import ai  # TODO: Add OpenAI API key
+from app.routers import auth, dashboard, accounts, contacts, opportunities, products, commissions, admin, ai
 
 # Create database tables
 print("Creating database tables...")
@@ -26,20 +25,21 @@ app = FastAPI(title="SalesStud.io API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://localhost:3002"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
-# app.include_router(ai.router, prefix="/ai", tags=["ai"])  # TODO: Add OpenAI API key
+app.include_router(ai.router, prefix="/ai", tags=["ai"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
 app.include_router(contacts.router, prefix="/contacts", tags=["contacts"])
 app.include_router(opportunities.router, prefix="/opportunities", tags=["opportunities"])
 app.include_router(products.router, prefix="/products", tags=["products"])
 app.include_router(commissions.router, prefix="/commissions", tags=["commissions"])
+app.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 @app.get("/")
 async def root():

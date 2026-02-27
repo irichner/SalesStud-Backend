@@ -6,10 +6,15 @@
 # 2026-02-16: JWT auth with fastapi-users + role support
 # =============================================
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from fastapi_users import FastAPIUsers
 from fastapi_users.authentication import JWTStrategy, CookieTransport, AuthenticationBackend
 from fastapi_users.db import SQLAlchemyUserDatabase
+from fastapi_users.manager import BaseUserManager
+from typing import Optional
+from httpx_oauth.clients.google import GoogleOAuth2
+import httpx
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -49,6 +54,23 @@ class UserRead(BaseModel):
     class Config:
         from_attributes = True
 
+class CustomUserManager(BaseUserManager[User, int]):
+    def parse_id(self, user_id: str) -> int:
+        return int(user_id)
+
+    async def on_after_register(self, user: User, request: Optional[Request] = None):
+        print(f"User {user.id} has registered.")
+
+    async def on_after_forgot_password(
+        self, user: User, token: str, request: Optional[Request] = None
+    ):
+        print(f"User {user.id} has forgot their password. Reset token: {token}")
+
+    async def on_after_request_verify(
+        self, user: User, token: str, request: Optional[Request] = None
+    ):
+        print(f"Verification requested for user {user.id}. Verification token: {token}")
+
 # Authentication setup
 cookie_transport = CookieTransport(cookie_name="salesstud_auth", cookie_max_age=3600)
 
@@ -61,10 +83,32 @@ auth_backend = AuthenticationBackend(
     get_strategy=get_jwt_strategy,
 )
 
+def get_user_manager():
+    return CustomUserManager(SQLAlchemyUserDatabase(next(get_db()), User))
+
 fastapi_users = FastAPIUsers[User, int](
-    lambda: SQLAlchemyUserDatabase(get_db(), User),
+    get_user_manager,
     [auth_backend],
 )
+
+# Google OAuth setup
+google_oauth_client = GoogleOAuth2(
+    client_id=settings.GOOGLE_CLIENT_ID,
+    client_secret=settings.GOOGLE_CLIENT_SECRET,
+)
+
+# JWT strategy for manual token creation
+jwt_strategy = JWTStrategy(secret=settings.SECRET_KEY, lifetime_seconds=3600)
+
+async def get_google_user_info(access_token: str):
+    """Fetch user info from Google using access token"""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        response.raise_for_status()
+        return response.json()
 
 # Public routes
 router.include_router(
@@ -83,6 +127,65 @@ router.include_router(
     tags=["users"]
 )
 
+# OAuth routes
+@router.get("/google/authorize")
+async def authorize_google():
+    """Redirect to Google OAuth"""
+    authorization_url = await google_oauth_client.get_authorization_url(
+        redirect_uri="http://localhost:8000/auth/oauth/google/callback",
+        state="random_state_string",  # In production, generate secure state
+    )
+    return {"authorization_url": authorization_url}
+
+@router.get("/oauth/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    """Handle Google OAuth callback"""
+    code = request.query_params.get("code")
+    if not code:
+        raise HTTPException(status_code=400, detail="Authorization code missing")
+
+    # Exchange code for access token
+    token = await google_oauth_client.get_access_token(code, "http://localhost:8000/auth/oauth/google/callback")
+
+    # Get user info from Google
+    user_info = await get_google_user_info(token["access_token"])
+
+    email = user_info["email"]
+    name = user_info.get("name", email.split("@")[0])
+
+    # Check if user exists
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user:
+        # Create new user
+        user = User(
+            username=email.split("@")[0],
+            full_name=name,
+            email=email,
+            hashed_password=None,  # OAuth users have no password
+            role="SalesRep",
+            is_active=True,
+            auth_provider="google"
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    # Create JWT token
+    token_data = await jwt_strategy.write_token(user)
+
+    # Set cookie and redirect
+    response = RedirectResponse(url="http://localhost:3000", status_code=302)
+    response.set_cookie(
+        key="salesstud_auth",
+        value=token_data,
+        max_age=3600,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax"
+    )
+    return response
+
 # Current user endpoint
 @router.get("/me", response_model=UserRead)
 async def get_current_user(user: User = Depends(fastapi_users.current_user())):
@@ -94,11 +197,10 @@ class UserPreferencesUpdate(BaseModel):
 
 @router.get("/preferences")
 async def get_user_preferences(
-    user: User = Depends(fastapi_users.current_user()),
     db: Session = Depends(get_db)
 ):
-    """Get user preferences"""
-    prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+    """Get user preferences (demo: user_id=1)"""
+    prefs = db.query(UserPreferences).filter(UserPreferences.user_id == 1).first()
     if not prefs:
         return {"saved_tabs": None}
     return {"saved_tabs": prefs.saved_tabs}
@@ -106,16 +208,15 @@ async def get_user_preferences(
 @router.post("/preferences")
 async def save_user_preferences(
     prefs: UserPreferencesUpdate,
-    user: User = Depends(fastapi_users.current_user()),
     db: Session = Depends(get_db)
 ):
-    """Save user preferences"""
-    existing_prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+    """Save user preferences (demo: user_id=1)"""
+    existing_prefs = db.query(UserPreferences).filter(UserPreferences.user_id == 1).first()
     if existing_prefs:
         existing_prefs.saved_tabs = prefs.saved_tabs
         db.commit()
     else:
-        new_prefs = UserPreferences(user_id=user.id, saved_tabs=prefs.saved_tabs)
+        new_prefs = UserPreferences(user_id=1, saved_tabs=prefs.saved_tabs)
         db.add(new_prefs)
         db.commit()
     return {"message": "Preferences saved successfully"}

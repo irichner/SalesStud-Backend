@@ -9,9 +9,11 @@
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    DATABASE_URL: str
+    DATABASE_URL: str = "mssql+pyodbc://sa:password@localhost/salesstud?driver=ODBC+Driver+17+for+SQL+Server"
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
 
     class Config:
         env_file = ".env"

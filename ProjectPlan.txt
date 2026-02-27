@@ -1,0 +1,103 @@
+Here's a detailed, full implementation plan for integrating "Autonomous Schema Evolution" into SalesStud, based on the original task description and your updates: removing human approvals, enabling full autonomous DB modifications (CRUD and DDL) by AI agents, and using the database as contextual memory. This will make the system a truly self-evolving CRM/SPM, with agents capable of detecting needs, generating/executing changes, and updating their own knowledge via DB queries.
+
+The plan is structured as a 4-week MVP rollout (aligning with the task's Week 3 focus but expanded), with granular steps, code snippets, file modifications, and testing. It assumes MSSQL as the DB (switching from SQLite), LangGraph for agent orchestration, LiteLLM for LLM calls (Grok-first), and SQLAlchemy for DB interactions. Risks (e.g., data loss) are noted but mitigated via logging/backups—agents will have unrestricted access as requested.
+
+### Overall Architecture
+- **Agents**: Built on LangGraph graphs, using DB tables (e.g., extended ChatMessage or new Memory table) for persistent memory/context.
+- **DB Autonomy**: Agents use SQLAlchemy to execute direct DDL (e.g., ALTER TABLE) and CRUD without restrictions. LiteLLM generates safe SQL via prompts.
+- **Triggers**: Agents activate on data patterns (e.g., via Celery tasks scanning Interactions/Opportunities) or user prompts (e.g., "add subscription tiers").
+- **Memory**: Agents query DB for context (e.g., current schema via Inspector, historical data) before changes, storing state in DB for persistence.
+- **Tiers**: Gate behind Enterprise roles (using existing Role/UserRole models).
+- **Safety Mitigations**: Auto-backups before changes, audit logging (extend LLMSpendLog to SchemaChangeLog), rollback via temporal tables (MSSQL feature).
+
+### Week 1: Setup and Migration to MSSQL
+Focus: Prepare infrastructure for autonomy.
+1. **Update Dependencies** (SalesStud-Backend/requirements.txt):
+   - Add: `langgraph==0.0.1` (or latest), `litellm==1.0.0`, `pyodbc==5.0.0` (MSSQL driver), `celery==5.3.0` (for background tasks, already present), `redis==5.0.0` (Celery broker).
+   - Update SQLAlchemy to 2.0+ if needed for MSSQL dialect.
+   - Command: `pip install -r requirements.txt` (in Act mode).
+
+2. **Migrate to MSSQL**:
+   - Update SalesStud-Backend/app/core/config.py: Set `DATABASE_URL = os.getenv("DATABASE_URL", "mssql+pyodbc://sa:password@localhost/salesstud?driver=ODBC+Driver+17+for+SQL+Server")`.
+   - In SalesStud-Backend/.env: Add MSSQL connection string.
+   - Run existing Alembic migrations: `alembic upgrade head`.
+   - Test connection: Modify check_tables.py to use MSSQL and run.
+   - Leverage MSSQL features: Add JSON columns to flexible tables (e.g., Opportunities for custom attributes) via initial migration.
+
+3. **DB as Memory Setup**:
+   - Add new model in models.py: `class AgentMemory(Base): __tablename__ = "AgentMemory"; id = Column(Integer, primary_key=True); agent_id = Column(Integer, ForeignKey("AIAgents.id")); key = Column(String); value = Column(JSON); timestamp = Column(DateTime)`.
+   - This stores agent state/context persistently.
+
+### Week 2: Integrate LiteLLM and LangGraph
+Focus: Enable unified LLM and agent workflows.
+1. **Integrate LiteLLM** (SalesStud-Backend/app/services/ai_service.py):
+   - Replace OpenAI client with LiteLLM: 
+     ```python
+     import litellm
+     def litellm_completion(model, messages, **kwargs):
+         return litellm.completion(model=model, messages=messages, api_key=provider.api_key, base_url=provider.base_url, **kwargs)
+     ```
+   - Update generate_ai_response and other functions to use this, prioritizing "xai/grok-4-1-fast-reasoning".
+   - Add cost logging for all calls.
+
+2. **Build LangGraph Agents** (New file: SalesStud-Backend/app/services/schema_agent.py):
+   - Install LangGraph and define graph:
+     ```python
+     from langgraph.graph import StateGraph, END
+     from typing import TypedDict
+     class AgentState(TypedDict): context: dict; change_needed: bool; sql: str
+     graph = StateGraph(AgentState)
+     # Nodes: detect_need, generate_sql, execute_change, update_memory
+     ```
+   - Detection node: Analyze inputs (e.g., query DB for patterns like "50+ deals with subscription_tier missing").
+   - Generation node: Use LiteLLM to create SQL (DDL/CRUD) with prompt: "Generate safe MSSQL to add column based on schema: {inspector.get_table_info()}".
+   - Execution node: Use SQLAlchemy `engine.execute(sql)` for direct changes.
+   - Memory node: Store results in AgentMemory table.
+
+3. **Tie to Existing Agents**:
+   - Extend AIAgent model: Add `graph_config = Column(JSON)` for LangGraph specifics.
+   - Update generate_ai_response to invoke LangGraph if schema change detected.
+
+### Week 3: Implement Modification Tools and Workflow
+Focus: Core autonomy for DDL/CRUD.
+1. **Direct Modification Tools**:
+   - In schema_agent.py, add tools:
+     ```python
+     @tool
+     def modify_schema(change: str) -> str:
+         schema = inspector.get_table_info()  # From SQLAlchemy
+         sql = litellm_completion(model="xai/grok-4-1-fast-reasoning", messages=[{"role": "system", "content": "Generate MSSQL DDL"}, {"role": "user", "content": f"Schema: {schema}. Change: {change}"}])
+         engine.execute(sql)  # Direct execution
+         return "Schema updated"
+     ```
+     - Similar tool for CRUD: `update_data(query: str)` executes SELECT/INSERT/UPDATE/DELETE.
+
+2. **Workflow Integration**:
+   - LangGraph flow: Input → Detect (query DB memory) → Generate → Execute → Update Memory (store in AgentMemory) → End.
+   - Trigger via API: Extend app/routers/ai.py with /evolve-schema endpoint, callable by agents or Celery tasks.
+
+3. **Post-Change Logic**:
+   - After execution, recalculate affected data (e.g., commissions via existing Commission model).
+   - Notify: Insert into ChatMessage for user visibility.
+   - Backup: Before changes, export schema/data to JSON via SQLAlchemy.
+
+### Week 4: Tier Gating, Testing, and Polish
+1. **Add Tier Gating** (app/routers/ai.py and admin.py):
+   - Check user role: If not Enterprise, raise 403.
+   - Use existing RolePermission for "schema_evolution" permission.
+
+2. **DB-as-Memory Integration**:
+   - In LangGraph state, load/save from AgentMemory: e.g., `state['context'] = db.query(AgentMemory).filter_by(agent_id=agent.id).all()`.
+
+3. **Testing**:
+   - Unit: Mock LiteLLM, test SQL generation/execution.
+   - End-to-End: Simulate "New subscription tiers in 20 contracts" → Agent detects → Adds column → Updates data → Recalculates Q1 commissions.
+   - Load test: Ensure no downtime during changes (use MSSQL online operations).
+
+### Risks and Best Practices
+- **Risks**: Unrestricted DDL could cause data loss—implement auto-rollback (e.g., transactions) and daily backups via Celery.
+- **Performance**: Add indexes post-change via agent detection.
+- **Audit**: New SchemaChangeLog model to track all modifications.
+- **Pricing**: Enterprise add-on at $15–$39/user/mo, marketed as "Autonomous Revenue Platform".
+
+This plan provides a complete, autonomous system. If you need code files or adjustments (e.g., re-add some safety), let me know. Otherwise, toggle to Act mode to start implementation.
